@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DTN Congestion Recovery</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <style>
+        .terminal { background: #1e1e1e; color: #00ff00; padding: 15px; font-family: monospace; height: 200px; overflow-y: auto; border-radius: 5px; font-size: 0.85rem; }
+        .node-badge { cursor: pointer; transition: 0.2s; }
+        .node-badge:hover { transform: scale(1.1); }
+        #graph-container { background: white; border-radius: 10px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body class="bg-light">
+    <div class="container-fluid py-4">
+        <div class="row">
+            <!-- Control Panel -->
+            <div class="col-md-3">
+                <div class="card shadow-sm border-0 mb-3">
+                    <div class="card-body">
+                        <h6 class="text-uppercase text-muted fw-bold">1. Traffic Engine</h6>
+                        <button onclick="apiInject()" class="btn btn-danger w-100 mb-2">🔥 API Traffic Spike</button>
+                        <p class="small text-muted">Fetches Cloudflare data to stress the network.</p>
+                        
+                        <hr>
+                        <h6 class="text-uppercase text-muted fw-bold">2. DTN Solution</h6>
+                        <button onclick="applyCGR()" class="btn btn-warning w-100 mb-2">🛡️ Activate CGR</button>
+                        <button onclick="releaseBuffer()" class="btn btn-success w-100">📡 Release Buffer</button>
+                        
+                        <hr>
+                        <h6 class="text-uppercase text-muted fw-bold">3. Failure Simulation</h6>
+                        <p class="small">Click a bottleneck to remove it:</p>
+                        <div id="bottleneck-list"></div>
+                        <button onclick="location.reload()" class="btn btn-outline-secondary btn-sm w-100 mt-2">🔄 Reset Entire Network</button>
+                        <button id="auto-btn" onclick="toggleRealTime()" class="btn btn-outline-success w-100 mb-2">📡 Start Live Monitor</button>
+                    </div>
+                </div>
+                
+                <div class="terminal" id="log">System Initialized... Waiting for Traffic.</div>
+            </div>
+
+            <!-- Visualization -->
+            <div class="col-md-9">
+                <div id="graph-container" class="text-center">
+                    <div class="d-flex justify-content-between mb-3">
+                        <h5>Network Topology <span id="multiplier-tag" class="badge bg-info"></span></h5>
+                        <div id="legend">
+                            <span class="badge bg-primary">Normal</span>
+                            <span class="badge bg-danger">Critical</span>
+                            <span class="badge bg-warning text-dark">Buffering (DTN)</span>
+                        </div>
+                    </div>
+                    <img id="main-graph" src="" class="img-fluid" style="display:none;">
+                    <div id="loader" class="py-5"><div class="spinner-border text-primary"></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function log(msg) {
+            const l = document.getElementById('log');
+            l.innerHTML += `<br>> ${msg}`;
+            l.scrollTop = l.scrollHeight;
+        }
+
+        async function apiInject() {
+            log("Fetching Cloudflare Radar API data...");
+            const res = await fetch('/inject');
+            const data = await res.json();
+            document.getElementById('main-graph').src = "data:image/png;base64," + data.graph_url;
+            document.getElementById('main-graph').style.display = "block";
+            document.getElementById('loader').style.display = "none";
+            document.getElementById('multiplier-tag').innerText = `Traffic Multiplier: ${data.multiplier}x`;
+            
+            log(`Injected ${data.packets} packets. Found ${data.bottlenecks.length} bottlenecks.`);
+            
+            let btnHtml = "";
+            data.bottlenecks.forEach(n => {
+                btnHtml += `<span class="badge bg-danger node-badge m-1" onclick="removeNode('${n}')">Remove ${n}</span>`;
+            });
+            document.getElementById('bottleneck-list').innerHTML = btnHtml;
+        }
+
+        async function applyCGR() {
+            log("Switching to Contact Graph Routing...");
+            const res = await fetch('/apply_cgr');
+            const data = await res.json();
+            document.getElementById('main-graph').src = "data:image/png;base64," + data.graph_url;
+            data.logs.forEach(m => log(m));
+        }
+
+        async function removeNode(nodeId) {
+            log(`Simulating failure at ${nodeId}...`);
+            const res = await fetch('/remove_node', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({node: nodeId})
+            });
+            const data = await res.json();
+            log(data.status);
+            apiInject(); // Re-run traffic to see fragmentation
+        }
+
+        async function releaseBuffer() {
+            const res = await fetch('/release_buffer');
+            const data = await res.json();
+            document.getElementById('main-graph').src = "data:image/png;base64," + data.graph_url;
+            log(data.status);
+        }
+
+        // Initialize
+        fetch('/setup').then(() => apiInject());
+
+        // Add this at the bottom of your script section in index.html
+let monitorInterval;
+
+function toggleRealTime() {
+    const btn = document.getElementById('auto-btn');
+    if (monitorInterval) {
+        clearInterval(monitorInterval);
+        monitorInterval = null;
+        btn.innerText = "Start Live Monitor";
+        btn.classList.replace('btn-success', 'btn-outline-success');
+        log("Live Monitor Stopped.");
+    } else {
+        log("Live Monitor Started: Syncing with Cloudflare Radar...");
+        btn.innerText = "Stop Live Monitor";
+        btn.classList.replace('btn-outline-success', 'btn-success');
+        
+        // Run immediately then every 5 seconds
+        apiInject(); 
+        monitorInterval = setInterval(apiInject, 5000); 
+    }
+}
+    </script>
+</body>
+</html>
